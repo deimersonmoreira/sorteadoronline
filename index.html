@@ -401,85 +401,175 @@ function createTeamColumn(team) {
     });
     col.append(header, content); return col;
 }
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+}
+
+function calculateTeamScore(team) {
+    return team.players.reduce((sum, player) => sum + player.score, 0);
+}
 
 function drawTeams() {
-    if (app.players.length === 0) { showNotification('Adicione jogadores.'); return; }
-    app.teams = []; app.reserveTeam.players = []; app.sortedPlayers = [...app.players];
-    
-    const total = app.players.length;
-    const nTeams = Math.ceil(total / app.playersPerTeam);
-    
-    for (let i = 0; i < nTeams; i++) {
-        app.teams.push({ id: i, name: `Time ${i+1}`, players: [], locked: false });
+    const lockedTeams = app.teams.filter(team => team.locked);
+    const lockedPlayerIds = new Set(lockedTeams.flatMap(t => t.players.map(p => p.id)));
+    const availablePlayers = app.players.filter(p => !lockedPlayerIds.has(p.id));
+
+    if (availablePlayers.length === 0) {
+        showNotification('Não há jogadores disponíveis.');
+        app.teams = lockedTeams;
+        renderTeams();
+        return;
     }
 
-    const shuffled = [...app.players].sort(() => Math.random() - 0.5);
-    let idx = 0;
+    const numFullTeamsToCreate = Math.floor(availablePlayers.length / app.playersPerTeam);
+    if (numFullTeamsToCreate === 0) {
+        showNotification(`Jogadores insuficientes para times de ${app.playersPerTeam}. Jogadores irão para reserva.`);
+        app.reserveTeam.players = [...availablePlayers];
+        app.teams = lockedTeams;
+        app.sortedPlayers = app.players.filter(p => lockedPlayerIds.has(p.id) || app.reserveTeam.players.some(rp => rp.id === p.id));
+        saveToLocalStorage();
+        renderTeams();
+        return;
+    }
 
-    shuffled.forEach(p => {
-        let teamFound = false;
-        let attempts = 0;
+    app.reserveTeam.players = [];
+    let existingNonLockedTeams = app.teams.filter(team => !team.locked);
+    let targetTeams = existingNonLockedTeams.slice(0, numFullTeamsToCreate);
+    let nextTeamId = app.teams.length > 0 ? Math.max(...app.teams.map(t => t.id).filter(id => typeof id === 'number')) + 1 : 1;
 
-        while (!teamFound && attempts < app.teams.length) {
-            const team = app.teams[idx];
-            if (!team.locked && team.players.length < app.playersPerTeam) {
-                team.players.push(p);
-                teamFound = true;
-            }
-            if (!teamFound) {
-                idx = (idx + 1) % app.teams.length;
-                attempts++;
-            }
+    for (let i = targetTeams.length; i < numFullTeamsToCreate; i++) {
+        targetTeams.push({ id: nextTeamId++, name: `Time ${nextTeamId}`, players: [], locked: false });
+    }
+
+    targetTeams.forEach(team => team.players = []);
+
+    if (targetTeams.length !== numFullTeamsToCreate) {
+        console.error("Erro interno: Número incorreto de times alvo.");
+        showNotification("Erro interno (T01). Tente resetar times.");
+        app.teams = lockedTeams;
+        app.reserveTeam.players = availablePlayers;
+        renderTeams();
+        return;
+    }
+
+    const playersByScore = {};
+    availablePlayers.forEach(p => {
+        playersByScore[p.score] = playersByScore[p.score] || [];
+        playersByScore[p.score].push(p);
+    });
+
+    const semiRandomSortedPlayers = [];
+    for (let score = 5; score >= 1; score--) {
+        if (playersByScore[score]) {
+            shuffleArray(playersByScore[score]);
+            semiRandomSortedPlayers.push(...playersByScore[score]);
         }
+    }
 
-        if (!teamFound) {
-            app.reserveTeam.players.push(p);
+    let currentTeamIndex = 0;
+    let direction = 1;
+    let playersPlacedCount = 0;
+    const reservePlayers = [];
+    const totalSlotsToFill = numFullTeamsToCreate * app.playersPerTeam;
+
+    semiRandomSortedPlayers.forEach(player => {
+        if (playersPlacedCount < totalSlotsToFill) {
+            if (currentTeamIndex < 0 || currentTeamIndex >= targetTeams.length) {
+                console.error(`Erro de índice (${currentTeamIndex}) - Jogador ${player.name} para reserva.`);
+                reservePlayers.push(player);
+            } else {
+                targetTeams[currentTeamIndex].players.push(player);
+                playersPlacedCount++;
+                currentTeamIndex += direction;
+                if (currentTeamIndex >= numFullTeamsToCreate) {
+                    direction = -1;
+                    currentTeamIndex = numFullTeamsToCreate - 1;
+                } else if (currentTeamIndex < 0) {
+                    direction = 1;
+                    currentTeamIndex = 0;
+                }
+            }
+        } else {
+            reservePlayers.push(player);
         }
     });
 
+    app.teams = [...lockedTeams, ...targetTeams];
+    app.reserveTeam.players = reservePlayers;
+    const finalTeamPlayerIds = new Set(app.teams.flatMap(t => t.players.map(p => p.id)));
+    const reservePlayerIds = new Set(app.reserveTeam.players.map(p => p.id));
+    app.sortedPlayers = app.players.filter(p => finalTeamPlayerIds.has(p.id) || reservePlayerIds.has(p.id));
+
     saveToLocalStorage();
     renderTeams();
-    showNotification('Times sorteados.');
+    showNotification(`${numFullTeamsToCreate} times de ${app.playersPerTeam} formados (semi-aleatório). ${app.reserveTeam.players.length} na reserva.`);
 }
 function distributeNewPlayers() {
-    const unsorted = app.players.filter(p => 
-        !app.sortedPlayers.some(sp => sp.id === p.id)
-    );
+    // Find players in the main list (app.players) that are not currently in any team or reserve
+    const currentPlayerIdsInTeamsOrReserve = new Set([
+        ...app.teams.flatMap(t => t.players.map(p => p.id)),
+        ...app.reserveTeam.players.map(p => p.id)
+    ]);
+    const unsorted = app.players.filter(p => !currentPlayerIdsInTeamsOrReserve.has(p.id));
+
     if (unsorted.length === 0) {
         showNotification('Nenhum novo jogador para distribuir.');
         return;
     }
 
-    unsorted.forEach(p => {
-        let placed = false;
-        let attempts = 0;
-        let idx = 0;  // reinicia busca em Time 1 para cada jogador
+    let distributedCount = 0;
+    unsorted.forEach(player => {
+        let bestTeam = null;
+        let minTeamSize = Infinity;
+        let bestTeamScore = Infinity;
 
-        // tenta alocar em algum time com vaga
-        while (!placed && attempts < app.teams.length) {
-            const team = app.teams[idx];
+        // Find the best team: non-locked, has space, fewest players, then lowest score
+        app.teams.forEach(team => {
             if (!team.locked && team.players.length < app.playersPerTeam) {
-                team.players.push(p);
-                placed = true;
-            }
-            idx = (idx + 1) % app.teams.length;
-            attempts++;
-        }
+                const teamSize = team.players.length;
+                const teamScore = calculateTeamScore(team);
 
-        // se não coube em nenhum time livre, vai para reserva
-        if (!placed) {
-            app.reserveTeam.players.push(p);
+                if (teamSize < minTeamSize) {
+                    minTeamSize = teamSize;
+                    bestTeamScore = teamScore;
+                    bestTeam = team;
+                } else if (teamSize === minTeamSize) {
+                    if (teamScore < bestTeamScore) {
+                        bestTeamScore = teamScore;
+                        bestTeam = team;
+                    }
+                }
+            }
+        });
+
+        if (bestTeam) {
+            bestTeam.players.push(player);
+            distributedCount++;
+        } else {
+            app.reserveTeam.players.push(player);
         }
     });
 
-    // marca esses como já “sortados”
-    app.sortedPlayers.push(...unsorted);
+    // Update the list of players considered "sorted"
+    const newlyHandledPlayers = unsorted.filter(p => {
+        const isInTeam = app.teams.some(t => t.players.some(tp => tp.id === p.id));
+        const isInReserve = app.reserveTeam.players.some(rp => rp.id === p.id);
+        return isInTeam || isInReserve;
+    });
+    const currentSortedIds = new Set(app.sortedPlayers.map(p => p.id));
+    newlyHandledPlayers.forEach(p => {
+        if (!currentSortedIds.has(p.id)) {
+            app.sortedPlayers.push(p);
+        }
+    });
 
     saveToLocalStorage();
     renderTeams();
-    showNotification(`${unsorted.length} jogador(es) distribuído(s).`);
+    showNotification(`${distributedCount} jogador(es) distribuído(s). ${unsorted.length - distributedCount} na reserva.`);
 }
-
 function resetTeams() {
     app.teams=[]; app.reserveTeam.players=[]; app.sortedPlayers=[];
     saveToLocalStorage(); renderTeams(); showNotification('Times resetados.');
@@ -560,4 +650,3 @@ function activateTab(name) {
 </script>
 </body>
 </html>
-
