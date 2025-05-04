@@ -100,6 +100,12 @@
         @media(max-width:768px) { .teams-container { grid-template-columns: 1fr; } .options-bar { flex-direction: column; align-items: stretch; } .input-group { flex-direction: column; } }
         .float-message { position: fixed; bottom: 20px; right: 20px; background: var(--primary); color: white; padding: 10px 15px; border-radius: 4px; box-shadow: var(--shadow); z-index: 1000; opacity: 0; transform: translateY(20px); transition: all 0.3s; }
         .float-message.visible { opacity: 1; transform: translateY(0); }
+        footer {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--dark-gray);
+}
     </style>
 </head>
 
@@ -436,17 +442,42 @@ function drawTeams() {
     showNotification('Times sorteados.');
 }
 function distributeNewPlayers() {
-    const unsorted = app.players.filter(p => !app.sortedPlayers.some(sp => sp.id===p.id));
-    if (unsorted.length===0) { showNotification('Nenhum novo jogador.'); return; }
-    let idx=0;
+    const unsorted = app.players.filter(p => 
+        !app.sortedPlayers.some(sp => sp.id === p.id)
+    );
+    if (unsorted.length === 0) {
+        showNotification('Nenhum novo jogador para distribuir.');
+        return;
+    }
+
     unsorted.forEach(p => {
-        while (app.teams[idx].locked) idx=(idx+1)%app.teams.length;
-        app.teams[idx].players.push(p);
-        idx=(idx+1)%app.teams.length;
+        let placed = false;
+        let attempts = 0;
+        let idx = 0;  // reinicia busca em Time 1 para cada jogador
+
+        // tenta alocar em algum time com vaga
+        while (!placed && attempts < app.teams.length) {
+            const team = app.teams[idx];
+            if (!team.locked && team.players.length < app.playersPerTeam) {
+                team.players.push(p);
+                placed = true;
+            }
+            idx = (idx + 1) % app.teams.length;
+            attempts++;
+        }
+
+        // se não coube em nenhum time livre, vai para reserva
+        if (!placed) {
+            app.reserveTeam.players.push(p);
+        }
     });
+
+    // marca esses como já “sortados”
     app.sortedPlayers.push(...unsorted);
-    saveToLocalStorage(); renderTeams();
-    showNotification(`${unsorted.length} novos distribuídos.`);
+
+    saveToLocalStorage();
+    renderTeams();
+    showNotification(`${unsorted.length} jogador(es) distribuído(s).`);
 }
 
 function resetTeams() {
