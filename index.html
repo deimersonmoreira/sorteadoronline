@@ -192,6 +192,7 @@
                     <div class="options-section">
                         <button class="btn-primary" id="draw-teams">Sortear</button>
                         <button class="btn-primary" id="distribute-new">Distribuir Novos</button>
+                        <button class="btn-success" id="share-teams">Compartilhar Times</button>
                         <button class="btn-danger" id="reset-teams">Resetar</button>
                     </div>
                 </div>
@@ -238,7 +239,8 @@ const DOM = {
     singleInput: document.getElementById('single-input'),
     bulkInput: document.getElementById('bulk-input'),
     bulkPlayersInput: document.getElementById('bulk-players'),
-    addBulkPlayersBtn: document.getElementById('add-bulk-players')
+    addBulkPlayersBtn: document.getElementById('add-bulk-players'),
+    shareTeamsBtn: document.getElementById('share-teams')
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -272,6 +274,8 @@ function setupEventListeners() {
     document.getElementById('reset-master').addEventListener('click', resetMaster);
     DOM.moveAllToAbsentBtn.addEventListener('click', moveAllToAbsent);
     DOM.tabs.forEach(tab => tab.addEventListener('click', () => activateTab(tab.getAttribute('data-tab'))));
+    DOM.shareTeamsBtn.addEventListener('click', shareTeams);
+
 }
 
 function toggleInputMode() {
@@ -671,6 +675,42 @@ function activateTab(name) {
     DOM.tabs.forEach(t => t.classList.toggle('active', t.dataset.tab===name));
     DOM.tabContents.forEach(c => c.classList.toggle('active', c.dataset.tab===name));
 }
+function shareTeams() {
+    let message = '🏆 *Times Sorteados:*\n\n';
+
+    app.teams.forEach(team => {
+        message += `➡️ *${team.name}:*\n`;
+        team.players.forEach((player, idx) => {
+            message += `${idx + 1}. ${player.name}\n`;
+        });
+        message += '-------------------------\n';
+    });
+
+    if (app.reserveTeam.players.length > 0) {
+        message += `\n🟡 *Reservas:*\n`;
+        app.reserveTeam.players.forEach((player, idx) => {
+            message += `${idx + 1}. ${player.name}\n`;
+        });
+    }
+
+    if (navigator.share) {
+        navigator.share({
+            title: 'Times Sorteados',
+            text: message
+        }).then(() => {
+            showNotification('Times compartilhados com sucesso!');
+        }).catch(err => {
+            showNotification('Compartilhamento cancelado.');
+        });
+    } else {
+        navigator.clipboard.writeText(message).then(() => {
+            showNotification('Texto copiado! Cole no WhatsApp ou outro app.');
+        }).catch(err => {
+            showNotification('Erro ao copiar texto.');
+        });
+    }
+}
+
 </script>
 </body>
 </html>
