@@ -74,7 +74,18 @@
             display: flex; justify-content: space-between; align-items: center;
         }
         .team-content { flex: 1; padding: 15px; min-height: 100px; overflow-y: auto; }
-        .lock-btn { background: none; border: none; color: white; cursor: pointer; font-size: 18px; }
+        .lock-btn { 
+            background: none; 
+            border: none; 
+            color: white; 
+            cursor: pointer; 
+            font-size: 18px; 
+            padding: 8px;
+            min-width: 40px;
+            min-height: 40px;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
         .team-stats {
             font-size: 12px; background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 10px;
         }
@@ -387,9 +398,21 @@ function createTeamColumn(team) {
     const title = document.createElement('span'); title.textContent = team.name;
     const stats = document.createElement('span'); stats.className='team-stats';
     stats.textContent = `${team.players.length} jogadores | Força: ${team.players.reduce((s,p)=>s+p.score,0)}`;
-    const lock = document.createElement('button'); lock.className='lock-btn'; lock.textContent=team.locked?'🔒':'🔓';
-    lock.onclick=()=>{team.locked=!team.locked; lock.textContent=team.locked?'🔒':'🔓'; saveToLocalStorage();};
-    header.append(title, stats, lock);
+    const lock = document.createElement('button');
+    lock.type = 'button';
+    lock.className = 'lock-btn';
+    lock.textContent = team.locked ? '🔒' : '🔓';
+    ['click', 'touchend'].forEach(eventType => {
+    lock.addEventListener(eventType, (e) => {
+        e.preventDefault();
+        team.locked = !team.locked;
+        lock.textContent = team.locked ? '🔒' : '🔓';
+        saveToLocalStorage();
+    });
+});
+    header.appendChild(title);
+    header.appendChild(stats);
+    header.appendChild(lock);
     const content = document.createElement('div'); content.className='team-content'; content.dataset.teamId=team.id;
     content.ondragover=e=>{e.preventDefault(); content.classList.add('drag-over');};
     content.ondragleave=e=>content.classList.remove('drag-over');
@@ -441,7 +464,8 @@ function drawTeams() {
     let nextTeamId = app.teams.length > 0 ? Math.max(...app.teams.map(t => t.id).filter(id => typeof id === 'number')) + 1 : 1;
 
     for (let i = targetTeams.length; i < numFullTeamsToCreate; i++) {
-        targetTeams.push({ id: nextTeamId++, name: `Time ${nextTeamId}`, players: [], locked: false });
+    const currentId = nextTeamId++;
+    targetTeams.push({ id: currentId, name: `Time ${currentId}`, players: [], locked: false });
     }
 
     targetTeams.forEach(team => team.players = []);
